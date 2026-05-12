@@ -326,7 +326,7 @@ class WDecoder {
                1
             );
 
-            for (int i = 4; i < colorTable.length; i++) {
+            for (int i = 4; i < colorTableSize * 4; i++) {
                colorTable[i] += colorTable[i - 4];
             }
 
