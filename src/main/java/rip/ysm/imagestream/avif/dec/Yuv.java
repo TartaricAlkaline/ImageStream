@@ -109,17 +109,14 @@ class Yuv {
       int[] dataV = current_frame.buffer().data(2);
       int stride0 = current_frame.buffer().stride(0);
       int stride1 = current_frame.buffer().stride(1);
-      int stride2 = current_frame.buffer().stride(2);
       int profile = sequence_header.profile;
-      int p = 0;
-      int c = 0;
       if (profile == 0) {
          for (int h = 0; h < image.getHeight(); h++) {
             int cStart = (h >> 1) * stride1;
             int indexY = h * stride0;
 
             for (int w = 0; w < image.getWidth(); w++) {
-               c = cStart + (w >> 1);
+               int c = cStart + (w >> 1);
                int y = ((dataY[indexY++] & 0xFF) << 8) + 128;
                int u = (dataU[c] & 0xFF) - 128;
                int v = (dataV[c] & 0xFF) - 128;
@@ -173,7 +170,7 @@ class Yuv {
             int indexY = h * stride0;
 
             for (int w = 0; w < image.getWidth(); w++) {
-               c = cStart + (w >> 1);
+               int c = cStart + (w >> 1);
                int y = ((dataY[indexY++] & 0xFF) << 8) + 128;
                int u = (dataU[c] & 0xFF) - 128;
                int v = (dataV[c] & 0xFF) - 128;

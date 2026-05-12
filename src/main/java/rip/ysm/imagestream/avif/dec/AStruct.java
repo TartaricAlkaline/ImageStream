@@ -38,6 +38,36 @@ public class AStruct {
       return image;
    }
 
+   public static byte[][] getDecodedAlphaPlane(byte[] data) {
+      AStruct struct = new AStruct();
+      Obu obu = new Obu(data, data.length, 0, struct.buffer_pool_, struct.state_);
+      obu.parseOneFrame();
+      D.RefCountedBuffer current_frame = obu.current_frame_;
+      Quant.initializeQuantizerMatrix(struct.quantizer_matrix_);
+      int imageWidth = obu.sequence_header_.max_frame_width;
+      int imageHeight = obu.sequence_header_.max_frame_height;
+      D.EncodedFrame encodedFrame = new D.EncodedFrame(obu, struct.state_, current_frame, 0);
+      BufferedImage scratch = new BufferedImage(imageWidth, imageHeight, BufferedImage.TYPE_INT_RGB);
+      struct.DecodeFrame(encodedFrame, scratch);
+
+      int[] dataY = current_frame.buffer().data(0);
+      int stride = current_frame.buffer().stride(0);
+      boolean fullRange = obu.sequence_header_.color_config.color_range != 0;
+      byte[][] alpha = new byte[imageHeight][imageWidth];
+      for (int y = 0; y < imageHeight; y++) {
+         int row = y * stride;
+         for (int x = 0; x < imageWidth; x++) {
+            int v = dataY[row + x] & 0xFF;
+            if (!fullRange) {
+               int t = (v - 16) * 255 / (235 - 16);
+               v = Math.max(0, Math.min(255, t));
+            }
+            alpha[y][x] = (byte) v;
+         }
+      }
+      return alpha;
+   }
+
    private static void writeIVFData(int imageWidth, int imageHeight, byte[] data) throws IOException {
       byte[] header = new byte[32];
       WriterByteLittle wb = new WriterByteLittle(header);
@@ -250,7 +280,7 @@ public class AStruct {
             int indexd = y * stride0;
 
             for (int x = 0; x < image.getWidth(); x++) {
-               int v = dataY[indexd++];
+               int v = dataY[indexd++] & 0xFF;
                image.setRGB(x, y, v << 16 | v << 8 | v);
             }
          }

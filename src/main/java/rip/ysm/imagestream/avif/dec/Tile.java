@@ -4363,7 +4363,7 @@ class Tile {
          if (!has_top && has_left) {
             Mem.set(top_row, 16, bufferData[y * bufferStride + x - 1], top_size);
          } else if (!has_top && !has_left) {
-            Mem.set(top_row, 16 + (1 << bitdepth - 1) - 1, top_size);
+            Mem.set(top_row, 16, (1 << bitdepth - 1) - 1, top_size);
          } else {
             int top_limit = Math.min(max_x - x + 1, top_right_size);
             Mem.cpy(top_row, 16, top_row_src, top_row_srcPos + x, top_limit);
