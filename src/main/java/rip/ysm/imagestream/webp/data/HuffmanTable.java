@@ -1,30 +1,29 @@
 package rip.ysm.imagestream.webp.data;
 
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
 
 final class HuffmanTable {
-   private static final int LEVEL1_BITS = 8;
    private static final int[] KCODELENGTHCODEORDER = new int[]{17, 18, 0, 1, 2, 3, 4, 5, 16, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-   private final int[] level1 = new int[256];
-   private final List<int[]> level2 = new ArrayList<>();
+
+   private int singleSymbol = -1;
+   private int maxLen;
+   private short[] fastSymbol;
+   private byte[] fastLength;
 
    HuffmanTable(WBit wBit, int alphabetSize) {
       boolean simpleLengthCode = wBit.readBit() == 1;
       if (simpleLengthCode) {
          int symbolNum = wBit.readBit() + 1;
          boolean first8Bits = wBit.readBit() == 1;
-         short symbol1 = (short)wBit.readBits(first8Bits ? 8 : 1);
+         int symbol1 = wBit.readBits(first8Bits ? 8 : 1);
          if (symbolNum == 2) {
-            short symbol2 = (short)wBit.readBits(8);
-
-            for (int i = 0; i < 256; i += 2) {
-               this.level1[i] = 65536 | symbol1;
-               this.level1[i + 1] = 65536 | symbol2;
-            }
+            int symbol2 = wBit.readBits(8);
+            short[] codeLengths = new short[Math.max(symbol1, symbol2) + 1];
+            codeLengths[symbol1] = 1;
+            codeLengths[symbol2] = 1;
+            this.buildFromLengths(codeLengths);
          } else {
-            Arrays.fill(this.level1, symbol1);
+            this.singleSymbol = symbol1;
          }
       } else {
          int numLCodeLengths = wBit.readBits(4) + 4;
@@ -45,74 +44,56 @@ final class HuffmanTable {
    }
 
    private HuffmanTable(short[] codeLengths, int numPosCodeLens) {
-      this.buildFromLengths(codeLengths, numPosCodeLens);
+      this.buildFromLengths(codeLengths);
    }
 
    private void buildFromLengths(short[] codeLengths) {
-      int numPosCodeLens = 0;
-
+      int count = 0;
+      int max = 0;
       for (short codeLength : codeLengths) {
          if (codeLength != 0) {
-            numPosCodeLens++;
+            count++;
+            if (codeLength > max) {
+               max = codeLength;
+            }
          }
       }
 
-      this.buildFromLengths(codeLengths, numPosCodeLens);
-   }
+      if (count == 0) {
+         return;
+      }
+      if (count == 1) {
+         for (int i = 0; i < codeLengths.length; i++) {
+            if (codeLengths[i] != 0) {
+               this.singleSymbol = i;
+               return;
+            }
+         }
+      }
 
-   private void buildFromLengths(short[] codeLengths, int numPosCodeLens) {
-      int[] lengthsAndSymbols = new int[numPosCodeLens];
+      // Symbols ordered by (length, symbol); canonical codes via the VP8L bit-reversed scheme.
+      int[] lengthsAndSymbols = new int[count];
       int index = 0;
-
       for (int i = 0; i < codeLengths.length; i++) {
          if (codeLengths[i] != 0) {
             lengthsAndSymbols[index++] = codeLengths[i] << 16 | i;
          }
       }
-
-      if (numPosCodeLens == 1) {
-         Arrays.fill(this.level1, lengthsAndSymbols[0] & 65535);
-      }
-
       Arrays.sort(lengthsAndSymbols);
+
+      this.maxLen = max;
+      int tableSize = 1 << max;
+      this.fastSymbol = new short[tableSize];
+      this.fastLength = new byte[tableSize];
+
       int code = 0;
-      int rootEntry = -1;
-      int[] currentTable = null;
-
-      for (int ix = 0; ix < lengthsAndSymbols.length; ix++) {
-         int lengthAndSymbol = lengthsAndSymbols[ix];
+      for (int lengthAndSymbol : lengthsAndSymbols) {
          int length = lengthAndSymbol >>> 16;
-         if (length <= 8) {
-            for (int j = code; j < this.level1.length; j += 1 << length) {
-               this.level1[j] = lengthAndSymbol;
-            }
-         } else {
-            if ((code & 0xFF) != rootEntry) {
-               int maxLength = length;
-               int j = ix;
-
-               for (int openSlots = 1 << length - 8; j < lengthsAndSymbols.length && openSlots > 0; openSlots--) {
-                  for (int innerLength = lengthsAndSymbols[j] >>> 16; innerLength != maxLength; openSlots <<= 1) {
-                     maxLength++;
-                  }
-
-                  j++;
-               }
-
-               j = maxLength - 8;
-               currentTable = new int[1 << j];
-               rootEntry = code & 0xFF;
-               this.level2.add(currentTable);
-               this.level1[rootEntry] = 8 + j << 16 | this.level2.size() - 1;
-            }
-
-            if (currentTable != null) {
-               for (int j = code >>> 8; j < currentTable.length; j += 1 << length - 8) {
-                  currentTable[j] = length - 8 << 16 | lengthAndSymbol & 65535;
-               }
-            }
+         int symbol = lengthAndSymbol & 0xFFFF;
+         for (int slot = code; slot < tableSize; slot += 1 << length) {
+            this.fastSymbol[slot] = (short)symbol;
+            this.fastLength[slot] = (byte)length;
          }
-
          code = nextCode(code, length);
       }
    }
@@ -174,17 +155,13 @@ final class HuffmanTable {
    }
 
    short readSymbol(WBit wBit) {
-      int index = wBit.readForward(8);
-      int lengthAndSymbol = this.level1[index];
-      int length = lengthAndSymbol >>> 16;
-      if (length > 8) {
-         wBit.readBits(8);
-         int level2Index = wBit.readForward(length - 8);
-         lengthAndSymbol = this.level2.get(lengthAndSymbol & 65535)[level2Index];
-         length = lengthAndSymbol >>> 16;
+      if (this.singleSymbol >= 0) {
+         return (short)this.singleSymbol;
       }
 
+      int index = wBit.readForward(this.maxLen);
+      int length = this.fastLength[index];
       wBit.readBits(length);
-      return (short)(lengthAndSymbol & 65535);
+      return this.fastSymbol[index];
    }
 }

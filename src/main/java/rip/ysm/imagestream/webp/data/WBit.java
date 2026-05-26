@@ -46,14 +46,9 @@ class WBit {
       this.getU64();
 
       for (; this.bitOffset >= 8; this.bitOffset -= 8) {
-         try {
-            byte b = (byte)this.dataReader.getU8();
-            this.buffer = (long)b << 56 | this.buffer >>> 8;
-            this.wPos++;
-         } catch (Exception var2) {
-            this.dataReader.moveTo(this.wPos);
-            return;
-         }
+         long b = this.getU8Safe();
+         this.buffer = b << 56 | this.buffer >>> 8;
+         this.wPos++;
       }
 
       this.dataReader.moveTo(this.wPos);
@@ -61,26 +56,29 @@ class WBit {
 
    private void reset() {
       int inputStreamPosition = this.dataReader.getPosition();
-
-      try {
-         this.buffer = this.getU64();
-         this.bitOffset = 0;
-         this.wPos = inputStreamPosition;
-         this.dataReader.moveTo(inputStreamPosition);
-      } catch (Exception var3) {
-         this.wPos = inputStreamPosition - 8;
-         this.bitOffset = 64;
-         this.refill();
-      }
+      this.buffer = this.getU64();
+      this.bitOffset = 0;
+      this.wPos = inputStreamPosition;
+      this.dataReader.moveTo(inputStreamPosition);
    }
 
    int readBit() {
       return this.readBits(1);
    }
 
+   private int getU8Safe() {
+      if (this.dataReader.getPosition() < this.dataReader.getLength()) {
+         return this.dataReader.getU8() & 0xFF;
+      }
+      this.dataReader.skip(1);
+      return 0;
+   }
+
    private long getU64() {
-      int i1 = this.dataReader.getU32();
-      int i2 = this.dataReader.getU32();
-      return ((long)i2 << 32) + (i1 & 4294967295L);
+      long v = 0L;
+      for (int i = 0; i < 8; i++) {
+         v |= (long)this.getU8Safe() << (i * 8);
+      }
+      return v;
    }
 }
